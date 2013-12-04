@@ -33,6 +33,8 @@ zsocket = context.socket(zmq.REQ)
 
 port = 5002
 host_name = socket.gethostname()
+import sys
+host_name = sys.argv[1]
 ip_address = socket.gethostbyname(host_name)
 interface = "tcp://%s" % (ip_address)
 home_address = "%s:%i" % (interface, port)

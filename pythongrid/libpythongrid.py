@@ -228,6 +228,7 @@ class KybJob(Job):
         self.sigtb = ""
         self.cplex = ""
         self.nicetohave = ""
+        self.hosts=""
 
         # additional fields for robustness
         self.num_resubmits = 0
@@ -253,7 +254,10 @@ class KybJob(Job):
         define python-style getter
         """
 
-        ret = ""
+        if self.__nativeSpecification:
+            return self.__nativeSpecification
+
+        ret = "-b n -w n"
 
         if (self.name != ""):
             ret = ret + " -N " + str(self.name)
@@ -290,6 +294,8 @@ class KybJob(Job):
             ret = ret + " -l " + "cplex" + "=" + str(self.cplex)
         if (self.nicetohave != ""):
             ret = ret + " -l " + "nicetohave" + "=" + str(self.nicetohave)
+        if (self.hosts != ""):
+            ret = ret + " -l " + "h" + "=" + str(self.hosts)
 
         if (self.white_list != ""):
             ret = ret + " -q "
@@ -496,7 +502,7 @@ def append_job_to_session(session, job):
         
 
     jt.remoteCommand = os.path.expanduser(CFG['PYGRID'])
-    jt.args = [job.name, job.home_address]
+    jt.args = [os.path.abspath(__file__), job.name, job.home_address]
     jt.joinFiles = True
     jt.nativeSpecification = job.nativeSpecification
     jt.outputPath = ":" + os.path.expanduser(CFG['TEMPDIR'])
@@ -823,6 +829,7 @@ class StatusCheckerZMQ(object):
 
             job_id = msg["job_id"]
 
+
             # only if its not the local beat
             if job_id != -1:
 
@@ -890,9 +897,9 @@ class StatusCheckerZMQ(object):
         check if jobs are alive and determine cause of death if not
         """
 
-
         for job in self.jobs:
             
+
             # noting was returned yet 
             if job.ret == None:
 
@@ -983,7 +990,7 @@ def handle_resubmit(session_id, job):
 
     if job.num_resubmits < CFG["NUM_RESUBMITS"]:
 
-        print "looks like job died an unnatural death, resubmitting (previous resubmits = %i)" % (job.num_resubmits)
+        print "looks like job died an unnatural death (cause = %s), resubmitting (previous resubmits = %i)" % (job.cause_of_death, job.num_resubmits)
 
         if job.cause_of_death == "out_of_memory":
             # increase memory
@@ -1301,11 +1308,14 @@ def heart_beat(job_id, address, parent_pid=-1, log_file="", wait_sec=45):
     the process
     """
 
-    while True:
-        status = get_job_status(parent_pid)
-        status["log_file"] = log_file
-        send_zmq_msg(job_id, "heart_beat", status, address)
-        time.sleep(wait_sec)
+    try:
+        while True:
+            status = get_job_status(parent_pid)
+            status["log_file"] = log_file
+            send_zmq_msg(job_id, "heart_beat", status, address)
+            time.sleep(wait_sec)
+    except KeyboardInterrupt:
+        pass
 
 
 def get_job_status(parent_pid):
@@ -1341,6 +1351,8 @@ def run_job(job_id, address):
         # here we will catch errors caused by pickled objects
         # of classes defined in modules not in PYTHONPATH
         print e
+
+        sys.stdout.flush()
 
         # send back exception
         thank_you_note = send_zmq_msg(job_id, "store_output", e, address)

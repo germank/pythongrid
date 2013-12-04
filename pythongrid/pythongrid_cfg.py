@@ -11,6 +11,7 @@ def get_white_list():
         qstat = os.popen("qstat -f")
 
         node_names = []
+        norm_loads = []
 
         for line in qstat:
 
@@ -20,8 +21,14 @@ def get_white_list():
 
                 if len(tokens) == 6:
                     continue
+            
+                slots = float(tokens[2].split("/")[2])
+                cpu_load = float(tokens[3])
+
+                norm_load = cpu_load/slots 
 
                 node_names.append(node_name)
+                norm_loads.append(norm_load)
 
         qstat.close()
 
@@ -41,9 +48,7 @@ dir_path = os.path.dirname(path)
 # default python path
 CFG['PYTHONPATH'] = ":".join(sys.path)
 
-print CFG
-
-CFG['PYGRID']     = dir_path + "/libpythongrid.py"
+CFG['PYGRID']     = dir_path + "/libpythongrid_wrapper.sh"
 CFG['TEMPDIR']    = os.environ['HOME'] + "/tmp/"
 
 # error emails
