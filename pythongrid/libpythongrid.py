@@ -208,7 +208,7 @@ class KybJob(Job):
     the system at MPI Biol. Cyber. Tuebingen.
     """
 
-    def __init__(self, f, args, kwlist={}, param=None, cleanup=True):
+    def __init__(self, f, args, kwlist={}, param=None, cleanup=True, pythonpathdir=None):
         """
         constructor of KybJob
         """
@@ -229,6 +229,11 @@ class KybJob(Job):
         self.cplex = ""
         self.nicetohave = ""
         self.hosts=""
+        if not pythonpathdir:
+            import inspect
+            pythonpathdir = os.path.dirname(os.path.abspath(inspect.getfile(f)))
+
+        self.pythonpathdir = pythonpathdir
 
         # additional fields for robustness
         self.num_resubmits = 0
@@ -502,7 +507,7 @@ def append_job_to_session(session, job):
         
 
     jt.remoteCommand = os.path.expanduser(CFG['PYGRID'])
-    jt.args = [os.path.abspath(__file__), job.name, job.home_address]
+    jt.args = [job.pythonpathdir if job.pythonpathdir else '-', os.path.abspath(__file__), job.name, job.home_address]
     jt.joinFiles = True
     jt.nativeSpecification = job.nativeSpecification
     jt.outputPath = ":" + os.path.expanduser(CFG['TEMPDIR'])
@@ -1154,6 +1159,7 @@ def send_error_mail(job):
 
     body_text += "job " + str(job.name) + "\n"
     body_text += "last timestamp: " + str(job.timestamp) + "\n"
+    body_text += "official death declaration timestamp: " + str(datetime.now()) + "\n"
     body_text += "num_resubmits: " + str(job.num_resubmits) + "\n"
     body_text += "cause_of_death: " + str(job.cause_of_death) + "\n"
 
