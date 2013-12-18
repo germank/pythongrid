@@ -98,7 +98,8 @@ class Job(object):
     the execute method gets called
     """
 
-    def __init__(self, f, args, kwlist={}, param=None, cleanup=True):
+    def __init__(self, f, args, kwlist={}, param=None, cleanup=True, 
+                 logdir=None):
         """
         constructor of Job
 
@@ -126,9 +127,9 @@ class Job(object):
         if param!=None:
             self.__set_parameters(param)
 
-        outdir = os.path.expanduser(CFG['TEMPDIR'])
-        if not os.path.isdir(outdir):
-            print '%s does not exist. Please create a directory' % outdir
+        self.logdir = logdir if logdir else os.path.expanduser(CFG['TEMPDIR'])
+        if not os.path.isdir(logdir):
+            print '%s does not exist. Please create a directory' % logdir
             raise Exception()
 
         self.name = 'pg_' + str(uuid.uuid1())
@@ -208,11 +209,13 @@ class KybJob(Job):
     the system at MPI Biol. Cyber. Tuebingen.
     """
 
-    def __init__(self, f, args, kwlist={}, param=None, cleanup=True, pythonpathdir=None):
+    def __init__(self, f, args, kwlist={}, param=None, cleanup=True, 
+                 pythonpathdir=None, logdir=None):
         """
         constructor of KybJob
         """
-        Job.__init__(self, f, args, kwlist, param=param, cleanup=cleanup)
+        Job.__init__(self, f, args, kwlist, param=param, cleanup=cleanup, 
+                     logdir=logdir)
         self.h_vmem = ""
         self.arch = ""
         self.tmpfree = ""
@@ -510,15 +513,15 @@ def append_job_to_session(session, job):
     jt.args = [job.pythonpathdir if job.pythonpathdir else '-', os.path.abspath(__file__), job.name, job.home_address]
     jt.joinFiles = True
     jt.nativeSpecification = job.nativeSpecification
-    jt.outputPath = ":" + os.path.expanduser(CFG['TEMPDIR'])
-    jt.errorPath = ":" + os.path.expanduser(CFG['TEMPDIR'])
+    jt.outputPath = ":" + job.logdir
+    jt.errorPath = ":" + job.logdir
 
     jobid = session.runJob(jt)
 
     # set job fields that depend on the jobid assigned by grid engine
     job.jobid = jobid
-    job.log_stdout_fn = (os.path.expanduser(CFG['TEMPDIR']) + job.name + '.o' + jobid)
-    job.log_stderr_fn = (os.path.expanduser(CFG['TEMPDIR']) + job.name + '.e' + jobid)
+    job.log_stdout_fn = os.path.join(job.logdir, job.name) + '.o' + jobid
+    job.log_stderr_fn = os.path.join(job.logdir, job.name) + '.e' + jobid
 
     print 'Your job %s has been submitted with id %s' % (job.name, jobid)
     print "stdout:", job.log_stdout_fn
@@ -561,8 +564,8 @@ def collect_jobs(sid, jobids, joblist, wait=False):
     retJobs = []
     for ix, job in enumerate(joblist):
         
-        log_stdout_fn = (os.path.expanduser(CFG['TEMPDIR']) + job.name + '.o' + jobids[ix])
-        log_stderr_fn = (os.path.expanduser(CFG['TEMPDIR']) + job.name + '.e' + jobids[ix])
+        log_stdout_fn = os.path.join(job.logdir, job.name) + '.o' + jobids[ix]
+        log_stderr_fn = os.path.join(job.logdir, job.name) + '.e' + jobids[ix]
         
         try:
             retJob = load(job.outputfile)
