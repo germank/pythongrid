@@ -36,6 +36,7 @@ import socket
 import zlib
 import uuid   
 import smtplib
+import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -839,6 +840,17 @@ class StatusCheckerZMQ(object):
 
         # save useful mapping
         self.jobid_to_job = {}
+
+        try:
+            #jobs must be serializable
+            for job in jobs:
+                zdumps(job)
+        except:
+            logging.exception("Cannot serialize job! Please, make sure all "
+            "relevant classes are in your pythonpath and you don't include "
+            "any non-serializable object as a member of it")
+            return
+
         for job in jobs:
             self.jobid_to_job[job.name] = job
 
