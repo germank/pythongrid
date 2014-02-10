@@ -1438,6 +1438,9 @@ def run_job(job_id, address):
     # run job
     job.execute()
 
+    #we don't need to report back the function to the mothership
+    del (job.f)
+    del (job.args)
     # send back result
     thank_you_note = send_zmq_msg(job_id, "store_output", job, address)
     print thank_you_note
