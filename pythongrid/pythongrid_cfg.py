@@ -71,15 +71,19 @@ CFG['USE_CHERRYPY'] = False
 
 # how much time can pass between heartbeats, before
 # job is assummed to be dead in seconds
-CFG['MAX_TIME_BETWEEN_HEARTBEATS'] = 600
+CFG['MAX_TIME_BETWEEN_HEARTBEATS'] = 180
 
 # factor by which to increase the requested memory
 # if an out of memory event was detected. 
-CFG['OUT_OF_MEM_INCREASE'] = 1.2
+CFG['OUT_OF_MEM_INCREASE'] = 1.5
+
+# max amount of memory that can be requested
+# when increasing the memory (in MB)
+CFG['OUT_OF_MEM_MAX'] = 120000
 
 # defines how many times can a particular job can die, 
 # before we give up
-CFG['NUM_RESUBMITS'] = 0
+CFG['NUM_RESUBMITS'] = 2
 
 # check interval: how many seconds pass before we check
 # on the status of a particular job in seconds

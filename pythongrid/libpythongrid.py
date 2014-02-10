@@ -128,7 +128,7 @@ class Job(object):
             self.__set_parameters(param)
 
         self.logdir = logdir if logdir else os.path.expanduser(CFG['TEMPDIR'])
-        if not os.path.isdir(logdir):
+        if not os.path.isdir(self.logdir):
             print '%s does not exist. Please create a directory' % logdir
             raise Exception()
 
@@ -378,6 +378,8 @@ class KybJob(Job):
         if self.h_vmem != "":
             unit = self.h_vmem[-1]
             allocated_mb = float(self.h_vmem[0:-1])
+            if CFG['OUT_OF_MEM_MAX'] and allocated_mb > CFG['OUT_OF_MEM_MAX']:
+                allocated_mb = CFG['OUT_OF_MEM_MAX']
             self.h_vmem = "%f%s" % (factor*allocated_mb, unit)
 
             print "memory for job %s increased to %s" % (self.name, self.h_vmem)
@@ -458,21 +460,28 @@ def submit_jobs(jobs, home_address, white_list=""):
 
     session = drmaa.Session()
     session.initialize()
+    sid = session.contact
     jobids = []
 
-    for job in jobs:
-        # set job white list
-        job.white_list = white_list
-
-        # remember address of submission host
-        job.home_address = home_address
-
-        # append jobs
-        jobid = append_job_to_session(session, job)
-        jobids.append(jobid)
-
-    sid = session.contact
-    session.exit()
+    try:
+        for job in jobs:
+            # set job white list
+            job.white_list = white_list
+    
+            # remember address of submission host
+            job.home_address = home_address
+    
+            # append jobs
+            jobid = append_job_to_session(session, job)
+            jobids.append(jobid)
+    except:
+        #FIXME: The whole mechanism is super-prone to race conditions
+        print "Killing submitted jobs"
+        for jobid in jobids:
+            terminate_job(session, jobid)
+        raise
+    finally:
+        session.exit()
 
     return (sid, jobids)
 
@@ -517,18 +526,20 @@ def append_job_to_session(session, job):
     jt.errorPath = ":" + job.logdir
 
     jobid = session.runJob(jt)
-
-    # set job fields that depend on the jobid assigned by grid engine
-    job.jobid = jobid
-    job.log_stdout_fn = os.path.join(job.logdir, job.name) + '.o' + jobid
-    job.log_stderr_fn = os.path.join(job.logdir, job.name) + '.e' + jobid
-
-    print 'Your job %s has been submitted with id %s' % (job.name, jobid)
-    print "stdout:", job.log_stdout_fn
-    print "stderr:", job.log_stderr_fn
-    print ""
-
-    session.deleteJobTemplate(jt)
+    try:
+        # set job fields that depend on the jobid assigned by grid engine
+        job.jobid = jobid
+        job.log_stdout_fn = os.path.join(job.logdir, job.name) + '.o' + jobid
+        job.log_stderr_fn = os.path.join(job.logdir, job.name) + '.e' + jobid
+    
+        print 'Your job %s has been submitted with id %s' % (job.name, jobid)
+        print "stdout:", job.log_stdout_fn
+        print "stderr:", job.log_stderr_fn
+        print ""
+    except:
+        terminate_job(session, jobid)
+    finally:
+        session.deleteJobTemplate(jt)
 
     return jobid
 
@@ -629,9 +640,19 @@ def process_jobs(jobs, local=False, maxNumThreads=1):
         # jobid field is attached to each job object
         (sid, jobids) = submit_jobs(jobs, home_address, white_list)
 
-        # handling of inputs, outputs and heartbeats
-        checker.check(sid, jobs)
 
+        try:
+            # handling of inputs, outputs and heartbeats
+            checker.check(sid, jobs)
+        except KeyboardInterrupt:
+            print "Killing jobs before exit"
+            # append to session
+            session = drmaa.Session()
+            session.initialize(sid)
+            for job in jobs:
+                terminate_job(session, job.jobid)
+            session.exit()
+            raise
         return jobs
 
     elif (not local and not DRMAA_PRESENT):
@@ -704,58 +725,58 @@ class StatusChecker(object):
                 
         s = drmaa.Session()
         s.initialize(self.sid)
-
-        status_summary = {}.fromkeys(self._decodestatus, 0)
-        status_changed = False
-
-        for job in self.jobs:
-
-            jobid = job.jobid
-            old_status = self.jobid_to_status[jobid]
-            
-            try:
-                curstat = s.jobStatus(jobid)
-
-            except Exception, message:
-                # handle case where already finished job
-                # is now out-of-synch with grid engine
-                if old_status == "done":
-                    curstat = "done"
-                else:
-                    curstat = -42
-
-
-            # print job status updates
-            if curstat != old_status:
-
-                # set flag
-                status_changed = True
-
-                # determine node name
-                job.host_name = check_host_name(jobid)
-
-                print "status update for job", jobid, "from", old_status, "to", curstat, "log at", job.log_stdout_fn, "on", job.host_name
-    
-                # check cause of death and resubmit if unnatural
-                if curstat == "done" or curstat == -42:
-                    resubmit = handle_resubmit(s, job)
-
-
-            # remember current status
-            self.jobid_to_status[jobid] = curstat
-            status_summary[curstat] += 1
-
-
-        # print status summary
-        if status_changed:
-            print 'Status of %s at %s' % (self.sid, time.strftime('%d/%m/%Y - %H.%M:%S'))
-            for curkey in status_summary.keys():
-                if status_summary[curkey]>0:
-                    print '%s: %d' % (self._decodestatus[curkey], status_summary[curkey])
-            print "##############################################"
+        try:
+            status_summary = {}.fromkeys(self._decodestatus, 0)
             status_changed = False
-
-        s.exit()
+    
+            for job in self.jobs:
+    
+                jobid = job.jobid
+                old_status = self.jobid_to_status[jobid]
+                
+                try:
+                    curstat = s.jobStatus(jobid)
+    
+                except Exception, message:
+                    # handle case where already finished job
+                    # is now out-of-synch with grid engine
+                    if old_status == "done":
+                        curstat = "done"
+                    else:
+                        curstat = -42
+    
+    
+                # print job status updates
+                if curstat != old_status:
+    
+                    # set flag
+                    status_changed = True
+    
+                    # determine node name
+                    job.host_name = check_host_name(jobid)
+    
+                    print "status update for job", jobid, "from", old_status, "to", curstat, "log at", job.log_stdout_fn, "on", job.host_name
+        
+                    # check cause of death and resubmit if unnatural
+                    if curstat == "done" or curstat == -42:
+                        resubmit = handle_resubmit(s, job)
+    
+    
+                # remember current status
+                self.jobid_to_status[jobid] = curstat
+                status_summary[curstat] += 1
+    
+    
+            # print status summary
+            if status_changed:
+                print 'Status of %s at %s' % (self.sid, time.strftime('%d/%m/%Y - %H.%M:%S'))
+                for curkey in status_summary.keys():
+                    if status_summary[curkey]>0:
+                        print '%s: %d' % (self._decodestatus[curkey], status_summary[curkey])
+                print "##############################################"
+                status_changed = False
+        finally:
+            s.exit()
 
         return (status_summary["done"] + status_summary[-42]==len(self.jobs))
 
@@ -827,6 +848,7 @@ class StatusCheckerZMQ(object):
 
         print "Using ZMQ layer to keep track of jobs"
 
+        remaining_clock = datetime.now()
         # main loop
         while not self.all_jobs_done():
     
@@ -893,9 +915,12 @@ class StatusCheckerZMQ(object):
                     # serve list of jobs for display
                     return_msg = self.jobs
 
-
             # send back compressed response
             self.socket.send(zdumps(return_msg))
+            
+            if  (datetime.now() - remaining_clock).seconds > 10:
+                print "remaining jobs:", [(job.jobid, job.name[:10]) for job in self.jobs if job.ret is None]
+                remaining_clock = datetime.now() 
 
         local_heart.terminate()
 
@@ -910,7 +935,6 @@ class StatusCheckerZMQ(object):
 
             # noting was returned yet 
             if job.ret == None:
-
                 # exclude first-timers
                 if job.timestamp != None:
                     
@@ -926,6 +950,9 @@ class StatusCheckerZMQ(object):
                             job.cause_of_death = "out_of_memory"
     
                         else:
+                            #FIXME: the job death detection mechanism is not working!
+                            #jobs can be happily running but somehow we don't get heart beats
+                            #continue
                             #TODO: check if node is reachable
                             #TODO: check if network hangs, wait some more if so
                             print "job died for unknown reason"
@@ -1005,11 +1032,13 @@ def handle_resubmit(session_id, job):
             job.alter_allocated_memory(CFG["OUT_OF_MEM_INCREASE"])
 
         else:
-
+            # increase memory
+            job.alter_allocated_memory(CFG["OUT_OF_MEM_INCREASE"])
+            #FIXME: testme!
             # remove node from white_list
-            node_name = "all.q@" + job.host_name
-            if job.white_list.count(node_name) > 0:
-                job.white_list.remove(node_name)
+            #node_name = "all.q@" + job.host_name
+            #if job.white_list.count(node_name) > 0:
+            #    job.white_list.remove(node_name)
 
         # increment number of resubmits
         job.num_resubmits += 1
@@ -1024,27 +1053,31 @@ def handle_resubmit(session_id, job):
         return False
 
 
+
+def terminate_job(session, jobid):
+   
+# try to kill off old job
+    try:
+        session.control(jobid, drmaa.JobControlAction.TERMINATE)
+        print "zombie job {0} killed".format(jobid) # TODO: ask SGE more questions about job status etc (maybe re-integrate StatusChecker)
+        return True
+    # TODO: write unit test for this
+    except Exception as detail:
+        print "could not kill job with SGE id", jobid
+        print detail
+        return False
+        
+
 def resubmit(session_id, job):
     """
     encapsulate creation of session for multiprocessing
     """
 
     print "starting resubmission process"
-
     # append to session
     session = drmaa.Session()
     session.initialize(session_id)
-    
-    # try to kill off old job
-    try:
-        # TODO: ask SGE more questions about job status etc (maybe re-integrate StatusChecker)
-        # TODO: write unit test for this
-
-        session.control(job.jobid, drmaa.JobControlAction.TERMINATE)
-        print "zombie job killed"
-    except Exception, detail:
-        print "could not kill job with SGE id", job.jobid
-        print detail
+    terminate_job(session, job.jobid)
     
     # create new job
     append_job_to_session(session, job)
