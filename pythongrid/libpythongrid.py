@@ -846,10 +846,9 @@ class StatusCheckerZMQ(object):
             for job in jobs:
                 zdumps(job)
         except:
-            logging.exception("Cannot serialize job! Please, make sure all "
+            raise RuntimeError("Cannot serialize job! Please, make sure all "
             "relevant classes are in your pythonpath and you don't include "
             "any non-serializable object as a member of it")
-            return
 
         for job in jobs:
             self.jobid_to_job[job.name] = job
