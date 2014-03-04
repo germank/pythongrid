@@ -9,4 +9,4 @@ fi
 shift
 LIBPYTHONGRID=$1
 shift
-/home/german.kruszewski/.local/bin/python -u $LIBPYTHONGRID $@
+/home/german.kruszewski/.local/bin/python -u $LIBPYTHONGRID $@ 

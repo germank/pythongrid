@@ -130,7 +130,7 @@ class Job(object):
 
         self.logdir = logdir if logdir else os.path.expanduser(CFG['TEMPDIR'])
         if not os.path.isdir(self.logdir):
-            print '%s does not exist. Please create a directory' % logdir
+            print '%s does not exist. Please create a directory' % self.logdir
             raise Exception()
 
         self.name = 'pg_' + str(uuid.uuid1())
@@ -535,7 +535,7 @@ def append_job_to_session(session, job):
     
         print 'Your job %s has been submitted with id %s' % (job.name, jobid)
         print "stdout:", job.log_stdout_fn
-        print "stderr:", job.log_stderr_fn
+        #print "stderr:", job.log_stderr_fn
         print ""
     except:
         terminate_job(session, jobid)
@@ -855,7 +855,8 @@ class StatusCheckerZMQ(object):
             self.jobid_to_job[job.name] = job
 
         # determines in which interval to check if jobs are alive
-        local_heart = multiprocessing.Process(target=heart_beat, args=(-1, self.home_address, -1, "", CFG["CHECK_FREQUENCY"]))
+        LOCAL_CHECK_FREQUENCY = 1
+        local_heart = multiprocessing.Process(target=heart_beat, args=(-1, self.home_address, -1, "", LOCAL_CHECK_FREQUENCY))
         local_heart.start()
 
         print "Using ZMQ layer to keep track of jobs"
@@ -888,9 +889,15 @@ class StatusCheckerZMQ(object):
                     # store tmp job object
                     tmp_job = msg["data"]
 
-                    # copy relevant fields
-                    job.ret = tmp_job.ret
-                    job.exception = tmp_job.exception
+                    
+                    if not isinstance(tmp_job, Exception):
+                        # copy relevant fields
+                        job.ret = tmp_job.ret
+                        job.exception = tmp_job.exception
+                    else:
+                        #failed initialization
+                        job.ret = tmp_job
+                        job.exception = tmp_job
                     
                     # is assigned in submission process and not written back server-side
                     #job.log_stdout_fn = tmp_job.log_stdout_fn 
